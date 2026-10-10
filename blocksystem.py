@@ -218,7 +218,7 @@ class InteractiveHudlTagger:
     def _register_global_hotkeys(self) -> None:
         """Register shortcuts usable while Hudl/browser is the focused window."""
         try:
-            for key in ("o", "p", "n", "t", "w", "x"):
+            for key in ("o", "p", "n", "t", "w", "j", "k", "l"):
                 hotkey_id = keyboard.add_hotkey(
                     key,
                     lambda pressed_key=key: self._queue_global_hotkey(pressed_key),
@@ -227,7 +227,7 @@ class InteractiveHudlTagger:
                 )
                 self._global_hotkey_ids.append(hotkey_id)
             self.status.config(
-                text="Global shortcuts active — keep Hudl focused. O/P speed; N/T/W commands.",
+                text="Global shortcuts active — keep Hudl focused. O/P speed; N/T/W tags; J/K/L playback.",
                 fg="#15803d",
             )
         except Exception as error:
@@ -252,8 +252,8 @@ class InteractiveHudlTagger:
                 self._handle_speed_hotkey(key)
             elif key in ("n", "t", "w"):
                 self.run_instant_command(key)
-            elif key == "x":
-                self._on_close()
+            elif key in ("j", "k", "l"):
+                self.run_playback_command(key)
         finally:
             self._global_action_running = False
 
@@ -264,6 +264,9 @@ class InteractiveHudlTagger:
             return "break"
         if key in ("n", "t", "w"):
             self.run_instant_command(key)
+            return "break"
+        if key in ("j", "k", "l"):
+            self.run_playback_command(key)
             return "break"
         if key == "x":
             self._on_close()
@@ -557,6 +560,21 @@ class InteractiveHudlTagger:
             self.status.config(text=f"Quick command failed: {error}", fg="red")
         finally:
             self._clear_entry_without_focus()
+
+    def run_playback_command(self, key: str) -> None:
+        """Send J/K/L playback controls while keeping Hudl focused."""
+        playback_keys = {"j": "left", "k": "space", "l": "right"}
+        target_key = playback_keys[key]
+        try:
+            pyautogui.press(target_key)
+            self.status.config(
+                text=f"Playback shortcut {key.upper()} sent ({target_key}).",
+                fg="#15803d",
+            )
+        except pyautogui.FailSafeException:
+            self.status.config(text="Playback command cancelled by PyAutoGUI fail-safe.", fg="red")
+        except Exception as error:
+            self.status.config(text=f"Playback command failed: {error}", fg="red")
 
     # ------------------------------------------------------------------
     # Existing player-number + Enter block-tagging sequence
