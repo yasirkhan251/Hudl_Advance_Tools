@@ -418,7 +418,7 @@ class InteractiveHudlTagger:
         # press during the short selection delay is still received.
         self._refocus_app()
 
-    def _select_pending_speed(self) -> None
+    def _select_pending_speed(self) -> None:
         self._speed_select_after = None
         if self.pending_speed_index is None:
             return
