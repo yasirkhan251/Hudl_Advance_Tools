@@ -612,13 +612,22 @@ class InteractiveHudlTagger:
         finally:
             self._clear_entry_without_focus()
 
-    # ------------------------------------------------------------------
-    # Focus management — the user must keep this app focused for O/P
-    # ------------------------------------------------------------------
-    def _refocus_app(self) -> None:
+    def _clear_entry_without_focus(self) -> None:
+        """Clear the optional player-number entry without stealing Hudl focus."""
         try:
             self.entry.delete(0, tk.END)
-            self.root.after(100, self._focus_entry)
+        except tk.TclError:
+            pass
+
+    def _on_close(self) -> None:
+        for hotkey_id in self._global_hotkey_ids:
+            try:
+                keyboard.remove_hotkey(hotkey_id)
+            except Exception:
+                pass
+        self._global_hotkey_ids.clear()
+        try:
+            self.root.destroy()
         except tk.TclError:
             pass
 
