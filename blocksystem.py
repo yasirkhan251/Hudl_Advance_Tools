@@ -6,6 +6,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox
 
+import keyboard
 import pyautogui
 
 pyautogui.FAILSAFE = True
@@ -37,14 +38,14 @@ CALIBRATION_STEPS = (
 
 
 class InteractiveHudlTagger:
-    """Tkinter-focused tagger; no OS-wide/global keyboard or mouse listeners."""
+    """Hudl tagger with global shortcuts so Hudl can remain focused."""
 
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Hudl Auto-Tagger")
         self.root.geometry("560x420")
         self.root.minsize(520, 390)
-        self.root.attributes("-topmost", True)
+        self.root.attributes("-topmost", False)
 
         self.coordinates = self._load_coordinates()
         self.target_coord = tuple(self.coordinates["target_coord"])
@@ -62,11 +63,13 @@ class InteractiveHudlTagger:
 
         self.overlay: tk.Toplevel | None = None
         self.calibration_index = 0
+        self._global_hotkey_ids = []
+        self._global_action_running = False
 
         self._build_ui()
         self._bind_app_hotkeys()
-        self.root.after(100, self._focus_entry)
-        self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        self._register_global_hotkeys()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     # ------------------------------------------------------------------
     # Coordinates JSON
@@ -157,7 +160,7 @@ class InteractiveHudlTagger:
 
         self.status = tk.Label(
             self.root,
-            text="Ready — click this window, then press O or P.",
+            text="Ready — keep Hudl focused and use O/P/N/T/W.",
             fg="#334155",
             wraplength=510,
             justify="center",
@@ -202,17 +205,57 @@ class InteractiveHudlTagger:
 
         tk.Label(
             self.root,
-            text="Numbers + Enter = block tagging. O/P execute immediately.",
+            text="Global shortcuts: O/P speed, N/T/W commands. Focus this window to enter numbers.",
             fg="#64748b",
             font=("Segoe UI", 8),
         ).pack(pady=(0, 10))
 
     def _bind_app_hotkeys(self) -> None:
-        # A toplevel binding is scoped to this Tkinter application's window.
-        # It is NOT an OS/global keyboard hook.
+        # Keep local bindings as a fallback when this window is focused.
         self.root.bind("<KeyPress>", self._handle_window_keypress)
-        # Handle O/P before Entry's class bindings can insert them as text.
         self.entry.bind("<KeyPress>", self._handle_entry_keypress, add="+")
+
+    def _register_global_hotkeys(self) -> None:
+        """Register shortcuts usable while Hudl/browser is the focused window."""
+        try:
+            for key in ("o", "p", "n", "t", "w", "x"):
+                hotkey_id = keyboard.add_hotkey(
+                    key,
+                    lambda pressed_key=key: self._queue_global_hotkey(pressed_key),
+                    suppress=True,
+                    trigger_on_release=False,
+                )
+                self._global_hotkey_ids.append(hotkey_id)
+            self.status.config(
+                text="Global shortcuts active — keep Hudl focused. O/P speed; N/T/W commands.",
+                fg="#15803d",
+            )
+        except Exception as error:
+            self.status.config(
+                text=f"Global shortcuts unavailable: {error}. Try running PowerShell as Administrator.",
+                fg="#b45309",
+            )
+
+    def _queue_global_hotkey(self, key: str) -> None:
+        # keyboard invokes callbacks outside Tk's UI thread.
+        try:
+            self.root.after(0, lambda: self._handle_global_hotkey(key))
+        except tk.TclError:
+            pass
+
+    def _handle_global_hotkey(self, key: str) -> None:
+        if self._global_action_running:
+            return
+        self._global_action_running = True
+        try:
+            if key in ("o", "p"):
+                self._handle_speed_hotkey(key)
+            elif key in ("n", "t", "w"):
+                self.run_instant_command(key)
+            elif key == "x":
+                self._on_close()
+        finally:
+            self._global_action_running = False
 
     def _handle_entry_keypress(self, event):
         key = event.keysym.lower()
@@ -223,7 +266,7 @@ class InteractiveHudlTagger:
             self.run_instant_command(key)
             return "break"
         if key == "x":
-            self.root.destroy()
+            self._on_close()
             return "break"
         return None
 
@@ -236,7 +279,7 @@ class InteractiveHudlTagger:
             self.run_instant_command(key)
             return "break"
         if key == "x":
-            self.root.destroy()
+            self._on_close()
             return "break"
         return None
 
@@ -294,7 +337,7 @@ class InteractiveHudlTagger:
             text=f"Player target saved: {self.target_coord}",
             fg="#15803d",
         )
-        self._refocus_app()
+        self._clear_entry_without_focus()
 
     def calibrate_playback_coordinates(self) -> None:
         if self.overlay is not None:
@@ -334,7 +377,7 @@ class InteractiveHudlTagger:
                 text="All 7 playback coordinates saved to coordinates.json.",
                 fg="#15803d",
             )
-            self._refocus_app()
+            self._clear_entry_without_focus()
             return
 
         self._update_calibration_prompt()
@@ -345,7 +388,7 @@ class InteractiveHudlTagger:
             text="Calibration cancelled. Coordinates already clicked were saved.",
             fg="#b45309",
         )
-        self._refocus_app()
+        self._clear_entry_without_focus()
 
     def _destroy_overlay(self) -> None:
         if self.overlay is not None:
@@ -414,12 +457,12 @@ class InteractiveHudlTagger:
         except pyautogui.FailSafeException:
             self.pending_speed_index = None
             self.status.config(text="Speed change cancelled by PyAutoGUI fail-safe.", fg="red")
-            self._refocus_app()
+            self._clear_entry_without_focus()
             return
         except Exception as error:
             self.pending_speed_index = None
             self.status.config(text=f"Could not open speed menu: {error}", fg="red")
-            self._refocus_app()
+            self._clear_entry_without_focus()
             return
 
         self._speed_select_after = self.root.after(
@@ -427,7 +470,7 @@ class InteractiveHudlTagger:
         )
         # Bring the Tkinter window back to the foreground so another O/P
         # press during the short selection delay is still received.
-        self._refocus_app()
+        self._clear_entry_without_focus()
 
     def _select_pending_speed(self) -> None:
         self._speed_select_after = None
@@ -442,12 +485,12 @@ class InteractiveHudlTagger:
         except pyautogui.FailSafeException:
             self.pending_speed_index = None
             self.status.config(text="Speed selection cancelled by PyAutoGUI fail-safe.", fg="red")
-            self._refocus_app()
+            self._clear_entry_without_focus()
             return
         except Exception as error:
             self.pending_speed_index = None
             self.status.config(text=f"Could not select {speed}: {error}", fg="red")
-            self._refocus_app()
+            self._clear_entry_without_focus()
             return
 
         self.current_speed_index = index
@@ -465,7 +508,7 @@ class InteractiveHudlTagger:
         self._close_menu_after = self.root.after(
             3000, self._close_playback_menu
         )
-        self._refocus_app()
+        self._clear_entry_without_focus()
 
     def _close_playback_menu(self) -> None:
         self._close_menu_after = None
@@ -479,7 +522,7 @@ class InteractiveHudlTagger:
         except Exception as error:
             self.status.config(text=f"Could not close playback menu: {error}", fg="red")
         finally:
-            self._refocus_app()
+            self._clear_entry_without_focus()
 
     # ------------------------------------------------------------------
     # Existing instant commands N/T/W/X
@@ -513,7 +556,7 @@ class InteractiveHudlTagger:
         except Exception as error:
             self.status.config(text=f"Quick command failed: {error}", fg="red")
         finally:
-            self._refocus_app()
+            self._clear_entry_without_focus()
 
     # ------------------------------------------------------------------
     # Existing player-number + Enter block-tagging sequence
@@ -567,7 +610,7 @@ class InteractiveHudlTagger:
         except Exception as error:
             self.status.config(text=f"Tagging failed: {error}", fg="red")
         finally:
-            self._refocus_app()
+            self._clear_entry_without_focus()
 
     # ------------------------------------------------------------------
     # Focus management — the user must keep this app focused for O/P
