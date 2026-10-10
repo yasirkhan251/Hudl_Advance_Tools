@@ -172,7 +172,6 @@ class InteractiveHudlTagger:
         )
         self.entry.pack(pady=7)
         self.entry.bind("<Return>", lambda event: self.run_complex_sequence())
-        self.entry.bind("<KeyRelease>", self.check_instant_keys)
 
         buttons = tk.Frame(self.root)
         buttons.pack(pady=8)
@@ -220,12 +219,24 @@ class InteractiveHudlTagger:
         if key in ("o", "p"):
             self._handle_speed_hotkey(key)
             return "break"
+        if key in ("n", "t", "w"):
+            self.run_instant_command(key)
+            return "break"
+        if key == "x":
+            self.root.destroy()
+            return "break"
         return None
 
     def _handle_window_keypress(self, event):
         key = event.keysym.lower()
         if key in ("o", "p"):
             self._handle_speed_hotkey(key)
+            return "break"
+        if key in ("n", "t", "w"):
+            self.run_instant_command(key)
+            return "break"
+        if key == "x":
+            self.root.destroy()
             return "break"
         return None
 
