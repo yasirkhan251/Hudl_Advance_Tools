@@ -26,6 +26,7 @@ DEFAULT_PLAYBACK_COORDS = {
     "exit_menu": (1417, 771),
 }
 PLAYBACK_SPEEDS = ("0.5x", "1x", "1.5x", "2x", "2.5x")
+MENU_OPEN_DELAY_MS = 600  # Allow Hudl playback menu animation to finish.
 CALIBRATION_STEPS = (
     ("menu", "Playback speed menu"),
     ("0.5x", "0.5x speed option"),
@@ -442,7 +443,7 @@ class InteractiveHudlTagger:
         if self._speed_select_after is not None:
             self.root.after_cancel(self._speed_select_after)
             self._speed_select_after = self.root.after(
-                350, self._select_pending_speed
+                MENU_OPEN_DELAY_MS, self._select_pending_speed
             )
             self.status.config(
                 text=f"Changing playback speed to {desired_speed}...",
@@ -469,7 +470,7 @@ class InteractiveHudlTagger:
             return
 
         self._speed_select_after = self.root.after(
-            350, self._select_pending_speed
+            MENU_OPEN_DELAY_MS, self._select_pending_speed
         )
         # Bring the Tkinter window back to the foreground so another O/P
         # press during the short selection delay is still received.
